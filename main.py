@@ -53,7 +53,34 @@ def get_player_info(nick):
 
 # ───── Telegram хелперы ─────
 
-def tg_send(chat_id, text, reply_markup=None):
+ROBLOX_API_KEY  = os.environ.get("ROBLOX_API_KEY")
+ROBLOX_UNIVERSE = os.environ.get("ROBLOX_UNIVERSE_ID")
+
+def roblox_cmd(chat_id, cmd, args):
+    """Отправляет команду на все серверы Roblox через MessagingService"""
+    if not ROBLOX_API_KEY or not ROBLOX_UNIVERSE:
+        tg_send(chat_id, "⚠️ ROBLOX_API_KEY или ROBLOX_UNIVERSE_ID не настроен!")
+        return
+
+    payload = json.dumps({"cmd": cmd, "args": args})
+    url = f"https://apis.roblox.com/messaging-service/v1/universes/{ROBLOX_UNIVERSE}/topics/AdminCmd"
+
+    try:
+        r = requests.post(url,
+            headers={
+                "x-api-key": ROBLOX_API_KEY,
+                "Content-Type": "application/json"
+            },
+            json={"message": payload}
+        )
+        if r.status_code == 200:
+            tg_send(chat_id, f"✅ Команда <b>{cmd}</b> отправлена!")
+        else:
+            tg_send(chat_id, f"❌ Ошибка Roblox API: {r.status_code}\n{r.text}")
+    except Exception as e:
+        tg_send(chat_id, f"❌ Ошибка: {str(e)}")
+
+
     payload = {
         "chat_id": chat_id,
         "text": text,
@@ -83,7 +110,6 @@ def format_reporters(reporters: dict) -> str:
 
 @app.route('/report', methods=['POST'])
 def handle_report():
-    print(f"TOKEN = {TOKEN}")
     try:
         data = request.json
         reported    = data.get('reported', 'Неизвестно')
@@ -186,13 +212,69 @@ def webhook():
         save_db(db)
         tg_send(chat_id, f"✅ Игрок <b>@{key}</b> удалён из базы.")
 
+    # /ban ник время(сек) причина
+    elif text.startswith("/ban"):
+        parts = text.split(maxsplit=3)
+        if len(parts) < 3:
+            tg_send(chat_id, "Использование: /ban &lt;ник&gt; &lt;секунды&gt; [причина]\nПример: /ban Player123 3600 читы\n0 = навсегда")
+            return "ok"
+        name    = parts[1]
+        seconds = parts[2]
+        reason  = parts[3] if len(parts) > 3 else "Нарушение правил"
+        roblox_cmd(chat_id, "ban", [name, seconds, reason])
+
+    # /unban ник
+    elif text.startswith("/unban"):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            tg_send(chat_id, "Использование: /unban &lt;ник&gt;")
+            return "ok"
+        roblox_cmd(chat_id, "unban", [parts[1]])
+
+    # /kick ник причина
+    elif text.startswith("/kick"):
+        parts = text.split(maxsplit=2)
+        if len(parts) < 2:
+            tg_send(chat_id, "Использование: /kick &lt;ник&gt; [причина]")
+            return "ok"
+        name   = parts[1]
+        reason = parts[2] if len(parts) > 2 else "без причины"
+        roblox_cmd(chat_id, "kick", [name, reason])
+
+    # /night режим (red/mono/purple/day/normal)
+    elif text.startswith("/night"):
+        parts = text.split(maxsplit=1)
+        mode = parts[1] if len(parts) > 1 else "day"
+        roblox_cmd(chat_id, "night", [mode])
+
+    # /giftpoints ник кол-во  ИЛИ  /giftpoints кол-во (всем)
+    elif text.startswith("/giftpoints"):
+        parts = text.split(maxsplit=2)
+        if len(parts) == 2 and parts[1].isdigit():
+            # всем
+            roblox_cmd(chat_id, "points", ["all", parts[1]])
+        elif len(parts) == 3:
+            # конкретному
+            roblox_cmd(chat_id, "points", [parts[1], parts[2]])
+        else:
+            tg_send(chat_id, "Использование:\n/giftpoints &lt;кол-во&gt; — всем\n/giftpoints &lt;ник&gt; &lt;кол-во&gt; — игроку")
+            return "ok"
+
     # /help
     elif text.startswith("/help"):
         tg_send(chat_id,
             "📖 <b>Команды:</b>\n\n"
+            "<b>📊 Репорты:</b>\n"
             "/top — топ нарушителей\n"
             "/info &lt;ник&gt; — инфа по игроку\n"
-            "/clear &lt;ник&gt; — удалить из базы\n"
+            "/clear &lt;ник&gt; — удалить из базы\n\n"
+            "<b>⚙️ Админ:</b>\n"
+            "/ban &lt;ник&gt; &lt;сек&gt; [причина] — забанить\n"
+            "/unban &lt;ник&gt; — разбанить\n"
+            "/kick &lt;ник&gt; [причина] — кикнуть\n"
+            "/night &lt;red|mono|purple|day|normal&gt; — режим ночи\n"
+            "/giftpoints &lt;кол-во&gt; — всем\n"
+            "/giftpoints &lt;ник&gt; &lt;кол-во&gt; — игроку\n"
             "/help — это сообщение"
         )
 
