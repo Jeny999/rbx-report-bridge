@@ -83,6 +83,7 @@ def format_reporters(reporters: dict) -> str:
 
 @app.route('/report', methods=['POST'])
 def handle_report():
+    print(f"TOKEN = {TOKEN}")
     try:
         data = request.json
         reported    = data.get('reported', 'Неизвестно')
