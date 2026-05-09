@@ -5,12 +5,15 @@ import os
 
 app = Flask(__name__)
 
-TOKEN   = os.environ.get("BOT_TOKEN")   # берётся из настроек Render, не из кода!
+TOKEN   = os.environ.get("BOT_TOKEN")
 CHAT_ID = "5108846687"
+
+ROBLOX_API_KEY  = os.environ.get("ROBLOX_API_KEY")
+ROBLOX_UNIVERSE = os.environ.get("ROBLOX_UNIVERSE_ID")
 
 DB_FILE = "reports.json"
 
-# ───── База данных (простой JSON файл) ─────
+# ───── База данных ─────
 
 def load_db():
     if not os.path.exists(DB_FILE):
@@ -26,45 +29,56 @@ def add_report(reported, reporter, reason):
     db = load_db()
     if reported not in db:
         db[reported] = {"total": 0, "reporters": {}, "reasons": {}}
-
     entry = db[reported]
     entry["total"] += 1
-
-    # Репортеры — считаем уникальных
     entry["reporters"][reporter] = entry["reporters"].get(reporter, 0) + 1
-
-    # Причины
     entry["reasons"][reason] = entry["reasons"].get(reason, 0) + 1
-
     save_db(db)
 
 def get_top(limit=10):
     db = load_db()
-    sorted_players = sorted(db.items(), key=lambda x: x[1]["total"], reverse=True)
-    return sorted_players[:limit]
+    return sorted(db.items(), key=lambda x: x[1]["total"], reverse=True)[:limit]
 
 def get_player_info(nick):
     db = load_db()
-    # Поиск без учёта регистра
     for key in db:
         if key.lower() == nick.lower():
             return key, db[key]
     return None, None
 
-# ───── Telegram хелперы ─────
+# ───── Telegram ─────
 
-ROBLOX_API_KEY  = os.environ.get("ROBLOX_API_KEY")
-ROBLOX_UNIVERSE = os.environ.get("ROBLOX_UNIVERSE_ID")
+def tg_send(chat_id, text, reply_markup=None):
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML"
+    }
+    if reply_markup:
+        payload["reply_markup"] = json.dumps(reply_markup)
+    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", json=payload)
+
+def format_reasons(reasons, total):
+    lines = []
+    for reason, count in sorted(reasons.items(), key=lambda x: x[1], reverse=True):
+        pct = round(count / total * 100)
+        lines.append(f"   └ {pct}% {reason}")
+    return "\n".join(lines)
+
+def format_reporters(reporters):
+    lines = []
+    for reporter, count in sorted(reporters.items(), key=lambda x: x[1], reverse=True):
+        lines.append(f"   • {reporter} (×{count})" if count > 1 else f"   • {reporter}")
+    return "\n".join(lines)
+
+# ───── Roblox MessagingService ─────
 
 def roblox_cmd(chat_id, cmd, args):
-    """Отправляет команду на все серверы Roblox через MessagingService"""
     if not ROBLOX_API_KEY or not ROBLOX_UNIVERSE:
         tg_send(chat_id, "⚠️ ROBLOX_API_KEY или ROBLOX_UNIVERSE_ID не настроен!")
         return
-
     payload = json.dumps({"cmd": cmd, "args": args})
     url = f"https://apis.roblox.com/messaging-service/v1/universes/{ROBLOX_UNIVERSE}/topics/AdminCmd"
-
     try:
         r = requests.post(url,
             headers={
@@ -79,32 +93,6 @@ def roblox_cmd(chat_id, cmd, args):
             tg_send(chat_id, f"❌ Ошибка Roblox API: {r.status_code}\n{r.text}")
     except Exception as e:
         tg_send(chat_id, f"❌ Ошибка: {str(e)}")
-
-
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML"
-    }
-    if reply_markup:
-        payload["reply_markup"] = json.dumps(reply_markup)
-    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", json=payload)
-
-def format_reasons(reasons: dict, total: int) -> str:
-    lines = []
-    for reason, count in sorted(reasons.items(), key=lambda x: x[1], reverse=True):
-        pct = round(count / total * 100)
-        lines.append(f"   └ {pct}% {reason}")
-    return "\n".join(lines)
-
-def format_reporters(reporters: dict) -> str:
-    lines = []
-    for reporter, count in sorted(reporters.items(), key=lambda x: x[1], reverse=True):
-        if count > 1:
-            lines.append(f"   • {reporter} (×{count})")
-        else:
-            lines.append(f"   • {reporter}")
-    return "\n".join(lines)
 
 # ───── Приём репортов от Roblox ─────
 
@@ -137,7 +125,7 @@ def handle_report():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# ───── Webhook от Telegram (команды бота) ─────
+# ───── Webhook от Telegram ─────
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -149,70 +137,55 @@ def webhook():
     if not chat_id or not text:
         return "ok"
 
-    # Только ты можешь использовать бота
     if str(chat_id) != CHAT_ID:
         tg_send(chat_id, "⛔ Нет доступа.")
         return "ok"
 
-    # /top — топ нарушителей
     if text.startswith("/top"):
         top = get_top(10)
         if not top:
             tg_send(chat_id, "📭 Репортов пока нет.")
             return "ok"
-
         lines = ["🏆 <b>Топ нарушителей:</b>\n"]
         for i, (nick, info) in enumerate(top, 1):
             total = info["total"]
             reasons_str = format_reasons(info["reasons"], total)
             lines.append(f"{i}. <b>@{nick}</b> (×{total})\n{reasons_str}")
-
         tg_send(chat_id, "\n\n".join(lines))
 
-    # /info ник — подробная инфа по игроку
     elif text.startswith("/info"):
         parts = text.split(maxsplit=1)
         if len(parts) < 2:
             tg_send(chat_id, "Использование: /info &lt;ник&gt;")
             return "ok"
-
         nick = parts[1].lstrip("@")
         key, info = get_player_info(nick)
-
         if not info:
             tg_send(chat_id, f"❓ Игрок <b>{nick}</b> не найден в базе.")
             return "ok"
-
         total = info["total"]
-        reasons_str  = format_reasons(info["reasons"], total)
-        reporters_str = format_reporters(info["reporters"])
-
         msg = (
             f"👤 <b>@{key}</b> — {total} репортов\n\n"
-            f"📊 <b>Причины:</b>\n{reasons_str}\n\n"
-            f"🗣 <b>Репортнули:</b>\n{reporters_str}"
+            f"📊 <b>Причины:</b>\n{format_reasons(info['reasons'], total)}\n\n"
+            f"🗣 <b>Репортнули:</b>\n{format_reporters(info['reporters'])}"
         )
         tg_send(chat_id, msg)
 
-    # /clear ник — удалить игрока из базы
     elif text.startswith("/clear"):
         parts = text.split(maxsplit=1)
         if len(parts) < 2:
             tg_send(chat_id, "Использование: /clear &lt;ник&gt;")
             return "ok"
-
         nick = parts[1].lstrip("@")
         key, info = get_player_info(nick)
         if not info:
             tg_send(chat_id, f"❓ Игрок <b>{nick}</b> не найден.")
             return "ok"
-
         db = load_db()
         del db[key]
         save_db(db)
         tg_send(chat_id, f"✅ Игрок <b>@{key}</b> удалён из базы.")
 
-    # /ban ник время(сек) причина
     elif text.startswith("/ban"):
         parts = text.split(maxsplit=3)
         if len(parts) < 3:
@@ -223,7 +196,6 @@ def webhook():
         reason  = parts[3] if len(parts) > 3 else "Нарушение правил"
         roblox_cmd(chat_id, "ban", [name, seconds, reason])
 
-    # /unban ник
     elif text.startswith("/unban"):
         parts = text.split(maxsplit=1)
         if len(parts) < 2:
@@ -231,7 +203,6 @@ def webhook():
             return "ok"
         roblox_cmd(chat_id, "unban", [parts[1]])
 
-    # /kick ник причина
     elif text.startswith("/kick"):
         parts = text.split(maxsplit=2)
         if len(parts) < 2:
@@ -241,26 +212,21 @@ def webhook():
         reason = parts[2] if len(parts) > 2 else "без причины"
         roblox_cmd(chat_id, "kick", [name, reason])
 
-    # /night режим (red/mono/purple/day/normal)
     elif text.startswith("/night"):
         parts = text.split(maxsplit=1)
         mode = parts[1] if len(parts) > 1 else "day"
         roblox_cmd(chat_id, "night", [mode])
 
-    # /giftpoints ник кол-во  ИЛИ  /giftpoints кол-во (всем)
     elif text.startswith("/giftpoints"):
         parts = text.split(maxsplit=2)
         if len(parts) == 2 and parts[1].isdigit():
-            # всем
             roblox_cmd(chat_id, "points", ["all", parts[1]])
         elif len(parts) == 3:
-            # конкретному
             roblox_cmd(chat_id, "points", [parts[1], parts[2]])
         else:
             tg_send(chat_id, "Использование:\n/giftpoints &lt;кол-во&gt; — всем\n/giftpoints &lt;ник&gt; &lt;кол-во&gt; — игроку")
             return "ok"
 
-    # /help
     elif text.startswith("/help"):
         tg_send(chat_id,
             "📖 <b>Команды:</b>\n\n"
