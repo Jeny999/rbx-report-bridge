@@ -169,7 +169,12 @@ def webhook():
             f"📊 <b>Причины:</b>\n{format_reasons(info['reasons'], total)}\n\n"
             f"🗣 <b>Репортнули:</b>\n{format_reporters(info['reporters'])}"
         )
-        tg_send(chat_id, msg)
+        markup = {"inline_keyboard": [[
+            {"text": "🔨 Забанить", "callback_data": f"ban_ask:{key}"},
+            {"text": "👢 Кикнуть", "callback_data": f"kick_ask:{key}"},
+            {"text": "🗑 Удалить из базы", "callback_data": f"clear:{key}"},
+        ]]}
+        tg_send(chat_id, msg, markup)
 
     elif text.startswith("/clear"):
         parts = text.split(maxsplit=1)
@@ -187,14 +192,23 @@ def webhook():
         tg_send(chat_id, f"✅ Игрок <b>@{key}</b> удалён из базы.")
 
     elif text.startswith("/ban"):
-        parts = text.split(maxsplit=3)
-        if len(parts) < 3:
-            tg_send(chat_id, "Использование: /ban &lt;ник&gt; &lt;секунды&gt; [причина]\nПример: /ban Player123 3600 читы\n0 = навсегда")
+        parts = text.split(maxsplit=1)
+        nick = parts[1].lstrip("@") if len(parts) > 1 else ""
+        if not nick:
+            tg_send(chat_id, "Использование: /ban &lt;ник&gt;")
             return "ok"
-        name    = parts[1]
-        seconds = parts[2]
-        reason  = parts[3] if len(parts) > 3 else "Нарушение правил"
-        roblox_cmd(chat_id, "ban", [name, seconds, reason])
+        markup = {"inline_keyboard": [
+            [
+                {"text": "⏱ 1 час", "callback_data": f"ban_time:{nick}:3600"},
+                {"text": "⏱ 6 часов", "callback_data": f"ban_time:{nick}:21600"},
+                {"text": "⏱ 1 день", "callback_data": f"ban_time:{nick}:86400"},
+            ],
+            [
+                {"text": "⏱ 7 дней", "callback_data": f"ban_time:{nick}:604800"},
+                {"text": "🔴 Навсегда", "callback_data": f"ban_time:{nick}:0"},
+            ]
+        ]}
+        tg_send(chat_id, f"⏱ На сколько забанить <b>@{nick}</b>?", markup)
 
     elif text.startswith("/unban"):
         parts = text.split(maxsplit=1)
@@ -204,18 +218,35 @@ def webhook():
         roblox_cmd(chat_id, "unban", [parts[1]])
 
     elif text.startswith("/kick"):
-        parts = text.split(maxsplit=2)
-        if len(parts) < 2:
-            tg_send(chat_id, "Использование: /kick &lt;ник&gt; [причина]")
+        parts = text.split(maxsplit=1)
+        nick = parts[1].lstrip("@") if len(parts) > 1 else ""
+        if not nick:
+            tg_send(chat_id, "Использование: /kick &lt;ник&gt;")
             return "ok"
-        name   = parts[1]
-        reason = parts[2] if len(parts) > 2 else "без причины"
-        roblox_cmd(chat_id, "kick", [name, reason])
+        markup = {"inline_keyboard": [[
+            {"text": "☠ Читы", "callback_data": f"kick:{nick}:Читы"},
+            {"text": "💬 Токсичность", "callback_data": f"kick:{nick}:Токсичность"},
+        ],[
+            {"text": "😤 Буллинг", "callback_data": f"kick:{nick}:Буллинг"},
+            {"text": "🗑 Спам", "callback_data": f"kick:{nick}:Спам"},
+        ],[
+            {"text": "✏️ Другое", "callback_data": f"kick:{nick}:Нарушение правил"},
+        ]]}
+        tg_send(chat_id, f"👢 Причина кика <b>@{nick}</b>?", markup)
 
     elif text.startswith("/night"):
-        parts = text.split(maxsplit=1)
-        mode = parts[1] if len(parts) > 1 else "day"
-        roblox_cmd(chat_id, "night", [mode])
+        markup = {"inline_keyboard": [
+            [
+                {"text": "🔴 Красная", "callback_data": "night:red"},
+                {"text": "⚫ Монохром", "callback_data": "night:mono"},
+                {"text": "🟣 Фиолетовая", "callback_data": "night:purple"},
+            ],
+            [
+                {"text": "☀️ День", "callback_data": "night:day"},
+                {"text": "🌙 Обычная", "callback_data": "night:normal"},
+            ]
+        ]}
+        tg_send(chat_id, "🌙 Выбери режим ночи:", markup)
 
     elif text.startswith("/giftpoints"):
         parts = text.split(maxsplit=2)
@@ -224,8 +255,17 @@ def webhook():
         elif len(parts) == 3:
             roblox_cmd(chat_id, "points", [parts[1], parts[2]])
         else:
-            tg_send(chat_id, "Использование:\n/giftpoints &lt;кол-во&gt; — всем\n/giftpoints &lt;ник&gt; &lt;кол-во&gt; — игроку")
-            return "ok"
+            markup = {"inline_keyboard": [
+                [
+                    {"text": "🎁 +100 всем", "callback_data": "points:all:100"},
+                    {"text": "🎁 +500 всем", "callback_data": "points:all:500"},
+                ],
+                [
+                    {"text": "🎁 +1000 всем", "callback_data": "points:all:1000"},
+                    {"text": "🎁 +5000 всем", "callback_data": "points:all:5000"},
+                ]
+            ]}
+            tg_send(chat_id, "💰 Сколько очков выдать всем?", markup)
 
     elif text.startswith("/help"):
         tg_send(chat_id,
@@ -235,12 +275,11 @@ def webhook():
             "/info &lt;ник&gt; — инфа по игроку\n"
             "/clear &lt;ник&gt; — удалить из базы\n\n"
             "<b>⚙️ Админ:</b>\n"
-            "/ban &lt;ник&gt; &lt;сек&gt; [причина] — забанить\n"
+            "/ban &lt;ник&gt; — забанить (с выбором времени)\n"
             "/unban &lt;ник&gt; — разбанить\n"
-            "/kick &lt;ник&gt; [причина] — кикнуть\n"
-            "/night &lt;red|mono|purple|day|normal&gt; — режим ночи\n"
-            "/giftpoints &lt;кол-во&gt; — всем\n"
-            "/giftpoints &lt;ник&gt; &lt;кол-во&gt; — игроку\n"
+            "/kick &lt;ник&gt; — кикнуть (с выбором причины)\n"
+            "/night — выбор режима ночи\n"
+            "/giftpoints — выдать очки\n"
             "/help — это сообщение"
         )
 
