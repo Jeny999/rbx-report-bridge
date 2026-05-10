@@ -58,6 +58,10 @@ def tg_send(chat_id, text, reply_markup=None):
         payload["reply_markup"] = json.dumps(reply_markup)
     requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", json=payload)
 
+def answer_callback(callback_id):
+    requests.post(f"https://api.telegram.org/bot{TOKEN}/answerCallbackQuery",
+        json={"callback_query_id": callback_id})
+
 def format_reasons(reasons, total):
     lines = []
     for reason, count in sorted(reasons.items(), key=lambda x: x[1], reverse=True):
@@ -130,6 +134,95 @@ def handle_report():
 @app.route('/webhook', methods=['POST'])
 def webhook():
     update = request.json
+
+    # ── Обработка нажатий кнопок ──
+    if "callback_query" in update:
+        cb      = update["callback_query"]
+        cb_id   = cb["id"]
+        chat_id = cb["message"]["chat"]["id"]
+        data    = cb.get("data", "")
+        answer_callback(cb_id)
+
+        if str(chat_id) != CHAT_ID:
+            return "ok"
+
+        parts = data.split(":")
+
+        if parts[0] == "night":
+            roblox_cmd(chat_id, "night", [parts[1]])
+
+        elif parts[0] == "kick":
+            roblox_cmd(chat_id, "kick", [parts[1], parts[2]])
+
+        elif parts[0] == "kick_ask":
+            nick = parts[1]
+            markup = {"inline_keyboard": [[
+                {"text": "☠ Читы", "callback_data": f"kick:{nick}:Читы"},
+                {"text": "💬 Токсичность", "callback_data": f"kick:{nick}:Токсичность"},
+            ],[
+                {"text": "😤 Буллинг", "callback_data": f"kick:{nick}:Буллинг"},
+                {"text": "🗑 Спам", "callback_data": f"kick:{nick}:Спам"},
+            ],[
+                {"text": "✏️ Другое", "callback_data": f"kick:{nick}:Нарушение правил"},
+            ]]}
+            tg_send(chat_id, f"👢 Причина кика <b>@{nick}</b>?", markup)
+
+        elif parts[0] == "ban_ask":
+            nick = parts[1]
+            markup = {"inline_keyboard": [
+                [
+                    {"text": "⏱ 1 час", "callback_data": f"ban_time:{nick}:3600"},
+                    {"text": "⏱ 6 часов", "callback_data": f"ban_time:{nick}:21600"},
+                    {"text": "⏱ 1 день", "callback_data": f"ban_time:{nick}:86400"},
+                ],
+                [
+                    {"text": "⏱ 7 дней", "callback_data": f"ban_time:{nick}:604800"},
+                    {"text": "🔴 Навсегда", "callback_data": f"ban_time:{nick}:0"},
+                ]
+            ]}
+            tg_send(chat_id, f"⏱ На сколько забанить <b>@{nick}</b>?", markup)
+
+        elif parts[0] == "ban_time":
+            nick = parts[1]
+            secs = parts[2]
+            markup = {"inline_keyboard": [
+                [
+                    {"text": "☠ Читы", "callback_data": f"ban_do:{nick}:{secs}:Читы"},
+                    {"text": "💬 Токсичность", "callback_data": f"ban_do:{nick}:{secs}:Токсичность"},
+                ],
+                [
+                    {"text": "😤 Буллинг", "callback_data": f"ban_do:{nick}:{secs}:Буллинг"},
+                    {"text": "🗑 Спам", "callback_data": f"ban_do:{nick}:{secs}:Спам"},
+                ],
+                [
+                    {"text": "✏️ Нарушение правил", "callback_data": f"ban_do:{nick}:{secs}:Нарушение правил"},
+                ]
+            ]}
+            tg_send(chat_id, f"❗ Причина бана <b>@{nick}</b>?", markup)
+
+        elif parts[0] == "ban_do":
+            nick   = parts[1]
+            secs   = parts[2]
+            reason = parts[3]
+            roblox_cmd(chat_id, "ban", [nick, secs, reason])
+
+        elif parts[0] == "clear":
+            nick = parts[1]
+            key, info = get_player_info(nick)
+            if info:
+                db = load_db()
+                del db[key]
+                save_db(db)
+                tg_send(chat_id, f"✅ Игрок <b>@{key}</b> удалён из базы.")
+            else:
+                tg_send(chat_id, "❓ Игрок не найден.")
+
+        elif parts[0] == "points":
+            roblox_cmd(chat_id, "points", [parts[1], parts[2]])
+
+        return "ok"
+
+    # ── Обычные сообщения ──
     message = update.get("message", {})
     chat_id = message.get("chat", {}).get("id")
     text    = message.get("text", "").strip()
@@ -172,7 +265,7 @@ def webhook():
         markup = {"inline_keyboard": [[
             {"text": "🔨 Забанить", "callback_data": f"ban_ask:{key}"},
             {"text": "👢 Кикнуть", "callback_data": f"kick_ask:{key}"},
-            {"text": "🗑 Удалить из базы", "callback_data": f"clear:{key}"},
+            {"text": "🗑 Удалить", "callback_data": f"clear:{key}"},
         ]]}
         tg_send(chat_id, msg, markup)
 
