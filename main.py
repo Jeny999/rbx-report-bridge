@@ -359,7 +359,7 @@ def webhook():
                 ]
             ]}
         tg_send(chat_id, "💰 Сколько очков выдать всем?", markup)
-        elif text.startswith("/say"):
+     elif text.startswith("/say"):
         parts = text.split(maxsplit=1)
         if len(parts) < 2:
             tg_send(chat_id, "Использование: /say &lt;сообщение&gt;")
