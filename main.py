@@ -4,6 +4,9 @@ import json
 import os
 
 app = Flask(__name__)
+from flask_cors import CORS
+CORS(app)
+active_servers = {} # Это список для хранения игроков
 
 TOKEN   = os.environ.get("BOT_TOKEN")
 CHAT_ID = "5108846687"
