@@ -4,6 +4,7 @@ import json
 import os
 
 app = Flask(__name__)
+
 from flask_cors import CORS
 CORS(app)
 active_servers = {} # Это список для хранения игроков
@@ -388,6 +389,7 @@ def webhook():
     return "ok"
 
 if __name__ == "__main__":
+    
 @app.route('/update_servers', methods=['POST'])
 def update_servers():
     global active_servers
