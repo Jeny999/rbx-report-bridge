@@ -388,4 +388,23 @@ def webhook():
     return "ok"
 
 if __name__ == "__main__":
+    @app.route('/update_servers', methods=['POST'])
+def update_servers():
+    global active_servers
+    data = request.json
+    sid = data.get("serverId")
+    if sid: active_servers[sid] = data
+    return jsonify({"status": "ok"}), 200
+
+@app.route('/get_servers', methods=['GET'])
+def get_servers():
+    return jsonify(list(active_servers.values())), 200
+
+@app.route('/ban', methods=['POST'])
+def web_ban():
+    data = request.json
+    if data.get("adminId") == CHAT_ID:
+        roblox_cmd(CHAT_ID, "ban", [str(data.get("playerId")), "0", data.get("reason", "Admin Panel")])
+        return jsonify({"status": "success"}), 200
+    return "Error", 403
     app.run(host='0.0.0.0', port=10000)
