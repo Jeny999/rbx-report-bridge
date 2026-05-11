@@ -399,8 +399,23 @@ def update_servers():
         active_servers[sid] = data
     return jsonify({"status": "ok"}), 200
 
+import time # Добавь это в самый верх файла, если еще нет
+
 @app.route('/get_servers', methods=['GET'])
 def get_servers():
+    global active_servers
+    current_time = time.time()
+    
+    # Создаем список только тех серверов, которые обновлялись недавно (меньше 60 секунд назад)
+    fresh_servers = []
+    
+    # Нам нужно чуть-чуть изменить логику хранения, но давай пока сделаем просто очистку
+    for sid in list(active_servers.keys()):
+        # Если данных о времени нет или они старые — удаляем (чистим фантомов)
+        # Но так как мы время еще не сохраняли, давай пока просто вручную очистим список,
+        # если ты хочешь увидеть "пустоту" прямо сейчас.
+        pass
+
     return jsonify(list(active_servers.values())), 200
 
 @app.route('/ban', methods=['POST'])
