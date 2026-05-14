@@ -11,11 +11,12 @@ app = Flask(__name__)
 CORS(app)
 
 # ───── ENV ─────
-TOKEN          = os.environ.get("BOT_TOKEN")
-CHAT_ID        = os.environ.get("CHAT_ID", "5108846687")
-ROBLOX_API_KEY = os.environ.get("ROBLOX_API_KEY")
+TOKEN           = os.environ.get("BOT_TOKEN")
+CHAT_ID         = os.environ.get("CHAT_ID", "5108846687")
+ROBLOX_API_KEY  = os.environ.get("ROBLOX_API_KEY")
 ROBLOX_UNIVERSE = os.environ.get("ROBLOX_UNIVERSE_ID")
-SHEETS_ID      = os.environ.get("GOOGLE_SHEET_ID")  # ID таблицы из URL
+SHEETS_ID       = os.environ.get("GOOGLE_SHEET_ID")
+GEMINI_API_KEY  = os.environ.get("GEMINI_API_KEY")
 
 # ───── Google Sheets ─────
 # Переменная окружения GOOGLE_CREDS_JSON — весь JSON сервисного аккаунта
@@ -195,6 +196,115 @@ def get_servers():
             "updatedAt":   updated
         })
     return result
+
+# ───── Gemini Анализ ─────
+
+def gemini_analyze(reported, reason, description, history_info, is_anticheat):
+    if not GEMINI_API_KEY:
+        return None
+    try:
+        # Формируем контекст для Gemini
+        source = "🤖 Античит (автодетект)" if is_anticheat else "👥 Игроки (жалобы)"
+        prompt = f"""Ты — система анализа нарушителей в Roblox хоррор игре "Rake".
+Тебе дают данные о подозрительном игроке. Дай короткий чёткий вывод.
+
+Игрок: {reported}
+Источник жалобы: {source}
+Причина: {reason}
+Описание: {description or 'не указано'}
+История: {history_info}
+
+Ответь строго в таком формате (без лишнего текста):
+ВЕРДИКТ: [ЧИТЕР / ПОДОЗРИТЕЛЬНЫЙ / ВЕРОЯТНО НЕВИНОВЕН]
+УВЕРЕННОСТЬ: [высокая / средняя / низкая]
+ВЫВОД: [1-2 предложения объяснения]
+РЕКОМЕНДАЦИЯ: [Бан / Кик / Варн / Наблюдать / Игнор]"""
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": 200, "temperature": 0.3}
+        }
+        r = requests.post(url, json=payload, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return None
+    except Exception as e:
+        print(f"Gemini error: {e}")
+        return None
+
+def send_anticheat_report(reported, reason, description, server_id, history):
+    """Отправляет красивый репорт от античита с Gemini анализом"""
+    total = history["total"] if history else 0
+    reasons_str = ""
+    if history:
+        for r, c in sorted(history["reasons"].items(), key=lambda x: x[1], reverse=True):
+            reasons_str += f"\n   └ {r} ×{c}"
+
+    history_info = f"Ранее репортили {total} раз. Причины:{reasons_str}" if total > 0 else "Ранее не репортили"
+
+    # Запрашиваем анализ у Gemini
+    analysis = gemini_analyze(reported, reason, description, history_info, is_anticheat=True)
+
+    # Формируем вердикт эмодзи
+    verdict_emoji = "🔴"
+    if analysis:
+        if "НЕВИНОВЕН" in analysis:
+            verdict_emoji = "🟢"
+        elif "ПОДОЗРИТЕЛЬНЫЙ" in analysis:
+            verdict_emoji = "🟡"
+
+    text = (
+        f"🤖 <b>АНТИЧИТ ДЕТЕКТ</b> {verdict_emoji}\n"
+        f"👤 <b>Игрок:</b> @{reported}\n"
+        f"⚠️ <b>Тип:</b> {reason}\n"
+        f"📝 <b>Детали:</b> {description or 'нет'}\n"
+        f"🌐 <b>Сервер:</b> {server_id}\n"
+        f"📊 <b>История:</b> {history_info}\n"
+    )
+
+    if analysis:
+        text += f"\n🧠 <b>Gemini анализ:</b>\n<code>{analysis}</code>"
+
+    markup = {"inline_keyboard": [[
+        {"text": "⚠️ Варн",    "callback_data": f"warn_ask:{reported}"},
+        {"text": "👢 Кик",     "callback_data": f"kick_ask:{reported}"},
+        {"text": "🔨 Бан",     "callback_data": f"ban_ask:{reported}"},
+        {"text": "✅ Игнор",   "callback_data": f"ignore:{reported}"},
+    ]]}
+    tg_send(CHAT_ID, text, markup)
+
+def send_player_report(reported, reporter, reason, description, server_id, history):
+    """Обычный репорт от игрока — тоже с Gemini если много жалоб"""
+    total = history["total"] if history else 1
+
+    text = (
+        f"🚨 <b>Новый репорт!</b>\n"
+        f"👤 <b>Репортнул:</b> {reporter}\n"
+        f"🎯 <b>На кого:</b> @{reported} (×{total})\n"
+        f"❗ <b>Причина:</b> {reason}\n"
+        f"📝 <b>Описание:</b> {description or 'не указано'}\n"
+        f"🌐 <b>Сервер:</b> {server_id}"
+    )
+
+    # Если уже много жалоб — добавляем Gemini анализ
+    if total >= 3 and history:
+        reasons_str = ""
+        for r, c in sorted(history["reasons"].items(), key=lambda x: x[1], reverse=True):
+            reasons_str += f"\n   └ {r} ×{c}"
+        history_info = f"Репортили {total} раз. Причины:{reasons_str}"
+        analysis = gemini_analyze(reported, reason, description, history_info, is_anticheat=False)
+        if analysis:
+            text += f"\n\n🧠 <b>Gemini анализ:</b>\n<code>{analysis}</code>"
+
+    markup = {"inline_keyboard": [[
+        {"text": "⚠️ Варн",    "callback_data": f"warn_ask:{reported}"},
+        {"text": "👢 Кик",     "callback_data": f"kick_ask:{reported}"},
+        {"text": "🔨 Бан",     "callback_data": f"ban_ask:{reported}"},
+        {"text": "🗑 Удалить", "callback_data": f"clear:{reported}"},
+    ]]}
+    tg_send(CHAT_ID, text, markup)
 
 # ───── Telegram ─────
 
