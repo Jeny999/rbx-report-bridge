@@ -602,6 +602,28 @@ def webhook():
             return "ok"
         delete_report_row(key)
         tg_send(chat_id, f"✅ Игрок <b>@{key}</b> удалён из базы.")
+        
+            elif text.startswith("/bans"):
+        bans = get_bans()
+        if not bans:
+            tg_send(chat_id, "📋 Список банов пуст.")
+            return "ok"
+        lines = ["🔨 <b>Список банов:</b>\n"]
+        for b in bans[:20]:
+            dur = int(b.get("duration_sec", 0))
+            dur_str = "навсегда" if dur == 0 else f"{dur//3600}ч"
+            lines.append(f"• <b>@{b['nick']}</b> — {b.get('reason','?')} ({dur_str})")
+        tg_send(chat_id, "\n".join(lines))
+
+    elif text.startswith("/unban"):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            tg_send(chat_id, "Использование: /unban &lt;ник&gt;")
+            return "ok"
+        nick = parts[1].lstrip("@")
+        remove_ban(nick)
+        roblox_cmd(chat_id, "unban", [nick])
+        tg_send(chat_id, f"✅ Игрок <b>@{nick}</b> разбанен.")
 
     elif text.startswith("/ban"):
         parts = text.split(maxsplit=1)
@@ -618,17 +640,7 @@ def webhook():
             {"text": "🔴 Навсегда", "callback_data": f"ban_time:{nick}:0"},
         ]]}
         tg_send(chat_id, f"⏱ На сколько забанить <b>@{nick}</b>?", markup)
-
-    elif text.startswith("/unban"):
-        parts = text.split(maxsplit=1)
-        if len(parts) < 2:
-            tg_send(chat_id, "Использование: /unban &lt;ник&gt;")
-            return "ok"
-        nick = parts[1].lstrip("@")
-        remove_ban(nick)
-        roblox_cmd(chat_id, "unban", [nick])
-        tg_send(chat_id, f"✅ Игрок <b>@{nick}</b> разбанен.")
-
+        
     elif text.startswith("/kick"):
         parts = text.split(maxsplit=1)
         nick = parts[1].lstrip("@") if len(parts) > 1 else ""
@@ -693,19 +705,7 @@ def webhook():
             p_list  = ", ".join(players) if players else "—"
             lines.append(f"🔵 <b>{sid[:8]}...</b> | 👥 {count}\n└ {p_list}")
         tg_send(chat_id, "\n\n".join(lines))
-
-    elif text.startswith("/bans"):
-        bans = get_bans()
-        if not bans:
-            tg_send(chat_id, "📋 Список банов пуст.")
-            return "ok"
-        lines = ["🔨 <b>Список банов:</b>\n"]
-        for b in bans[:20]:
-            dur = int(b.get("duration_sec", 0))
-            dur_str = "навсегда" if dur == 0 else f"{dur//3600}ч"
-            lines.append(f"• <b>@{b['nick']}</b> — {b.get('reason','?')} ({dur_str})")
-        tg_send(chat_id, "\n".join(lines))
-
+        
     elif text.startswith("/help"):
         tg_send(chat_id,
             "📖 <b>Команды:</b>\n\n"
