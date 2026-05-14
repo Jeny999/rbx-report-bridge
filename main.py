@@ -362,20 +362,16 @@ def handle_report():
         reason      = data.get('reason', 'Не указана')
         description = data.get('description', '')
         server_id   = data.get('server_id', '???')
+        is_anticheat = data.get('auto', False) or reporter == "AntiCheat"
 
         add_report(reported, reporter, reason)
         _, info = get_player_info(reported)
-        total = info["total"] if info else 1
 
-        text = (
-            f"🚨 <b>Новый репорт!</b>\n"
-            f"👤 <b>Репортнул:</b> {reporter}\n"
-            f"🎯 <b>На кого:</b> @{reported} (×{total})\n"
-            f"❗ <b>Причина:</b> {reason}\n"
-            f"📝 <b>Описание:</b> {description or 'не указано'}\n"
-            f"🌐 <b>Сервер:</b> {server_id}"
-        )
-        tg_send(CHAT_ID, text)
+        if is_anticheat:
+            send_anticheat_report(reported, reason, description, server_id, info)
+        else:
+            send_player_report(reported, reporter, reason, description, server_id, info)
+
         return jsonify({"status": "ok"}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -509,6 +505,9 @@ def webhook():
             reason = parts[2] if len(parts) > 2 else "Предупреждение от модератора"
             roblox_cmd(chat_id, "warn", [nick, reason])
 
+        elif parts[0] == "ignore":
+            tg_send(chat_id, f"✅ Игрок <b>@{parts[1]}</b> — проигнорирован.")
+
         elif parts[0] == "warn_ask":
             nick = parts[1]
             markup = {"inline_keyboard": [[
@@ -591,29 +590,6 @@ def webhook():
         ]]}
         tg_send(chat_id, f"⚠️ Причина предупреждения <b>@{nick}</b>?", markup)
 
-     elif text.startswith("/bans"):
-        bans = get_bans()
-        if not bans:
-            tg_send(chat_id, "📋 Список банов пуст.")
-            return "ok"
-        lines = ["🔨 <b>Список банов:</b>\n"]
-        for b in bans[:20]:
-            dur = int(b.get("duration_sec", 0))
-            dur_str = "навсегда" if dur == 0 else f"{dur//3600}ч"
-            lines.append(f"• <b>@{b['nick']}</b> — {b.get('reason','?')} ({dur_str})")
-        tg_send(chat_id, "\n".join(lines))
-
-    
-    elif text.startswith("/unban"):
-        parts = text.split(maxsplit=1)
-        if len(parts) < 2:
-            tg_send(chat_id, "Использование: /unban &lt;ник&gt;")
-            return "ok"
-        nick = parts[1].lstrip("@")
-        remove_ban(nick)
-        roblox_cmd(chat_id, "unban", [nick])
-        tg_send(chat_id, f"✅ Игрок <b>@{nick}</b> разбанен.")
-
     elif text.startswith("/clear"):
         parts = text.split(maxsplit=1)
         if len(parts) < 2:
@@ -642,6 +618,16 @@ def webhook():
             {"text": "🔴 Навсегда", "callback_data": f"ban_time:{nick}:0"},
         ]]}
         tg_send(chat_id, f"⏱ На сколько забанить <b>@{nick}</b>?", markup)
+
+    elif text.startswith("/unban"):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            tg_send(chat_id, "Использование: /unban &lt;ник&gt;")
+            return "ok"
+        nick = parts[1].lstrip("@")
+        remove_ban(nick)
+        roblox_cmd(chat_id, "unban", [nick])
+        tg_send(chat_id, f"✅ Игрок <b>@{nick}</b> разбанен.")
 
     elif text.startswith("/kick"):
         parts = text.split(maxsplit=1)
@@ -707,6 +693,18 @@ def webhook():
             p_list  = ", ".join(players) if players else "—"
             lines.append(f"🔵 <b>{sid[:8]}...</b> | 👥 {count}\n└ {p_list}")
         tg_send(chat_id, "\n\n".join(lines))
+
+    elif text.startswith("/bans"):
+        bans = get_bans()
+        if not bans:
+            tg_send(chat_id, "📋 Список банов пуст.")
+            return "ok"
+        lines = ["🔨 <b>Список банов:</b>\n"]
+        for b in bans[:20]:
+            dur = int(b.get("duration_sec", 0))
+            dur_str = "навсегда" if dur == 0 else f"{dur//3600}ч"
+            lines.append(f"• <b>@{b['nick']}</b> — {b.get('reason','?')} ({dur_str})")
+        tg_send(chat_id, "\n".join(lines))
 
     elif text.startswith("/help"):
         tg_send(chat_id,
