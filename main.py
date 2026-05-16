@@ -405,6 +405,17 @@ def route_get_reports():
 def route_get_bans():
     return jsonify(get_bans()), 200
 
+@app.route('/roblox_cmd', methods=['POST'])
+def web_roblox_cmd():
+    """Роут для сайта — отправляет команду в Roblox"""
+    data = request.json
+    cmd  = data.get("cmd", "")
+    args = data.get("args", [])
+    if not cmd:
+        return jsonify({"status": "error", "message": "no cmd"}), 400
+    roblox_cmd(CHAT_ID, cmd, args)
+    return jsonify({"status": "ok"}), 200
+
 @app.route('/ban', methods=['POST'])
 def web_ban():
     data = request.json
