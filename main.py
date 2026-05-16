@@ -8,7 +8,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["https://rake-admin-panel.onrender.com"])
 
 # ───── ENV ─────
 TOKEN           = os.environ.get("BOT_TOKEN")
